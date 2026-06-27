@@ -217,11 +217,29 @@
   .modal-btn.danger-confirm:hover { background: rgba(255, 80, 80, 0.25); }
 
 
+  .notes-area {
+    position: relative;
+    flex: 1;
+    overflow: auto;
+    border-radius: 16px;
+    min-width: 100%;
+  }
+  .notes-area::-webkit-scrollbar { width: 8px; height: 8px; }
+  .notes-area::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 4px; }
+  .notes-area::-webkit-scrollbar-thumb { background: rgba(155,89,255,0.3); border-radius: 4px; }
+
+  .notes-canvas {
+    position: relative;
+    min-width: 100%;
+    min-height: 100%;
+  }
+
   body.overlap .notes-area { display: block; }
+  body.overlap .notes-canvas { min-width: 100%; min-height: 100%; display: inline-block; }
   body.overlap .note-card { position: absolute; }
-  body:not(.overlap) .notes-area { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 16px; align-content: start; }
+  body:not(.overlap) .notes-area { display: block; }
+  body:not(.overlap) .notes-canvas { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 16px; align-content: start; }
   body:not(.overlap) .note-card { position: relative !important; left: auto !important; top: auto !important; width: 100% !important; min-height: 180px; resize: vertical; }
-  body:not(.overlap) .note-card.fullscreen { position: fixed !important; inset: 20px; width: auto !important; height: auto !important; z-index: 100; }
 
   @media (max-width: 768px) {
     .app-container { padding: 10px; }
@@ -275,13 +293,15 @@
   </div>
 
   <div class="notes-area" id="notesArea">
-    <div class="empty-state" id="emptyState">
-      <div class="empty-icon">🌌</div>
-      <div class="empty-title">The cosmos awaits</div>
-      <div class="empty-subtitle">Create your first note to fill the void</div>
-      <button class="toolbar-btn success" onclick="addNote()">
-        <span>＋</span> Create Note
-      </button>
+    <div class="notes-canvas" id="notesCanvas">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">🌌</div>
+        <div class="empty-title">The cosmos awaits</div>
+        <div class="empty-subtitle">Create your first note to fill the void</div>
+        <button class="toolbar-btn success" onclick="addNote()">
+          <span>＋</span> Create Note
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -436,7 +456,7 @@ function drawStars(time) {
   }
   requestAnimationFrame(drawStars);
 }
-window.addEventListener('resize', resizeCanvas);
+window.addEventListener('resize', () => { resizeCanvas(); expandCanvas(); });
 resizeCanvas();
 requestAnimationFrame(drawStars);
 
@@ -570,17 +590,109 @@ function toggleOverlap() {
 function toggleFullscreen(id) {
   const note = notes.find(n => n.id === id);
   const card = document.querySelector(`.note-card[data-id="${id}"]`);
-  if (!note || !card) return;
-  if (card.classList.contains('fullscreen')) {
+  const canvas = document.getElementById('notesCanvas');
+  if (!note || !card || !canvas) return;
+
+  const isFullscreen = card.classList.contains('fullscreen');
+
+  if (isFullscreen) {
     card.classList.remove('fullscreen');
+    card.style.position = 'absolute';
     card.style.left = (note._x || 20) + 'px';
     card.style.top = (note._y || 20) + 'px';
     card.style.width = '280px';
     card.style.height = 'auto';
+    card.style.zIndex = '';
+    restoreShiftedNotes(id);
   } else {
-    document.querySelectorAll('.note-card.fullscreen').forEach(c => c.classList.remove('fullscreen'));
+    document.querySelectorAll('.note-card.fullscreen').forEach(c => {
+      const nid = parseInt(c.dataset.id);
+      c.classList.remove('fullscreen');
+      const n = notes.find(x => x.id === nid);
+      c.style.position = 'absolute';
+      c.style.left = (n._x || 20) + 'px';
+      c.style.top = (n._y || 20) + 'px';
+      c.style.width = '280px';
+      c.style.height = 'auto';
+      c.style.zIndex = '';
+    });
+    restoreAllShiftedNotes();
+
+    // Ensure overlap mode
+    if (!document.body.classList.contains('overlap')) {
+      document.getElementById('overlapToggle').checked = true;
+      toggleOverlap();
+    }
+
+    shiftOtherNotes(id);
+
+    const areaRect = document.getElementById('notesArea').getBoundingClientRect();
     card.classList.add('fullscreen');
+    card.style.position = 'absolute';
+    card.style.left = '20px';
+    card.style.top = '20px';
+    card.style.width = (areaRect.width - 60) + 'px';
+    card.style.height = (areaRect.height - 60) + 'px';
+    card.style.zIndex = '50';
   }
+  expandCanvas();
+}
+
+let shiftedNotes = new Map();
+
+function shiftOtherNotes(fullscreenId) {
+  shiftedNotes.clear();
+  const fsCard = document.querySelector(`.note-card[data-id="${fullscreenId}"]`);
+  const fsRect = fsCard.getBoundingClientRect();
+  const areaRect = document.getElementById('notesArea').getBoundingClientRect();
+  const shiftBy = fsRect.width + 40;
+
+  document.querySelectorAll('.note-card').forEach(c => {
+    const nid = parseInt(c.dataset.id);
+    if (nid === fullscreenId) return;
+    const n = notes.find(x => x.id === nid);
+    const left = parseInt(c.style.left || n._x || 20);
+    if (left < fsRect.right - areaRect.left) {
+      shiftedNotes.set(nid, left);
+      const newLeft = left + shiftBy;
+      c.style.left = newLeft + 'px';
+      n._x = newLeft;
+    }
+  });
+  saveNotes();
+}
+
+function restoreShiftedNotes(fullscreenId) {
+  const fsCard = document.querySelector(`.note-card[data-id="${fullscreenId}"]`);
+  const fsRect = fsCard.getBoundingClientRect();
+  const areaRect = document.getElementById('notesArea').getBoundingClientRect();
+  const shiftBy = fsRect.width + 40;
+
+  document.querySelectorAll('.note-card').forEach(c => {
+    const nid = parseInt(c.dataset.id);
+    if (nid === fullscreenId) return;
+    const n = notes.find(x => x.id === nid);
+    if (shiftedNotes.has(nid)) {
+      const newLeft = n._x - shiftBy;
+      c.style.left = Math.max(20, newLeft) + 'px';
+      n._x = Math.max(20, newLeft);
+    }
+  });
+  shiftedNotes.clear();
+  saveNotes();
+}
+
+function restoreAllShiftedNotes() {
+  shiftedNotes.forEach((oldLeft, nid) => {
+    const n = notes.find(x => x.id === nid);
+    const c = document.querySelector(`.note-card[data-id="${nid}"]`);
+    if (n && c) {
+      c.style.left = oldLeft + 'px';
+      n._x = oldLeft;
+    }
+  });
+  shiftedNotes.clear();
+  saveNotes();
 }
 
 function toggleHtmlMode(id) {
@@ -666,6 +778,7 @@ if (texturedFrames) document.body.classList.add('textured');
 function saveNotes() {
   localStorage.setItem('nebula-notepad', JSON.stringify(notes));
   updateNoteCount();
+  setTimeout(expandCanvas, 50);
 }
 
 function updateNoteCount() {
@@ -808,7 +921,8 @@ function toggleTabLock(id, idx) {
 
 function autoTileNotes(force = false) {
   const area = document.getElementById('notesArea');
-  if (!area) return;
+  const canvas = document.getElementById('notesCanvas');
+  if (!area || !canvas) return;
   const cols = Math.max(1, Math.floor(area.clientWidth / 300));
   notes.forEach((n, i) => {
     if (force || n._x == null || n._y == null) {
@@ -816,6 +930,27 @@ function autoTileNotes(force = false) {
       n._y = 20 + Math.floor(i / cols) * 220;
     }
   });
+  expandCanvas();
+}
+
+function expandCanvas() {
+  const canvas = document.getElementById('notesCanvas');
+  if (!canvas) return;
+  if (document.body.classList.contains('overlap')) {
+    let maxRight = 0, maxBottom = 0;
+    document.querySelectorAll('.note-card').forEach(c => {
+      const r = c.getBoundingClientRect();
+      const left = parseInt(c.style.left || 0);
+      const top = parseInt(c.style.top || 0);
+      maxRight = Math.max(maxRight, left + r.width + 40);
+      maxBottom = Math.max(maxBottom, top + r.height + 40);
+    });
+    canvas.style.width = Math.max(canvas.parentElement.clientWidth, maxRight) + 'px';
+    canvas.style.height = Math.max(canvas.parentElement.clientHeight, maxBottom) + 'px';
+  } else {
+    canvas.style.width = '';
+    canvas.style.height = '';
+  }
 }
 
 let activeDrag = null;
@@ -857,7 +992,8 @@ function renderNotes() {
     return text.includes(search);
   });
 
-  area.querySelectorAll('.note-card').forEach(c => c.remove());
+  const canvas = document.getElementById('notesCanvas');
+  canvas.querySelectorAll('.note-card').forEach(c => c.remove());
   document.getElementById('emptyState').style.display = filtered.length ? 'none' : 'flex';
 
   filtered.forEach(note => {
@@ -910,10 +1046,11 @@ function renderNotes() {
         <span>${new Date(note.updated).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</span>
       </div>
     `;
-    area.appendChild(card);
+    canvas.appendChild(card);
   });
 
   updateNoteCount();
+  setTimeout(expandCanvas, 50);
 }
 
 function unlockTab(id) {
@@ -1057,6 +1194,12 @@ document.addEventListener('keydown', (e) => {
     closeModal();
   }
 });
+
+
+const resizeObserver = new ResizeObserver(() => {
+  expandCanvas();
+});
+resizeObserver.observe(document.getElementById('notesArea'));
 
 // ===== INIT =====
 autoTileNotes(true);
