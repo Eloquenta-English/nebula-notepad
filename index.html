@@ -207,6 +207,57 @@
   .anim-chip:hover { background: rgba(155, 89, 255, 0.2); color: var(--text-primary); }
   .anim-chip.active { background: rgba(155, 89, 255, 0.35); border-color: rgba(155, 89, 255, 0.5); color: var(--text-primary); }
 
+
+  .html-editor-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background: rgba(10, 12, 18, 0.65);
+    border-radius: 10px;
+    border: 1px solid rgba(155, 89, 255, 0.25);
+    margin: 8px 10px 10px;
+  }
+  .html-input, .html-highlight {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    padding: 12px 14px;
+    margin: 0;
+    border: none;
+    background: transparent;
+    color: #f8f8f2;
+    font-size: 13.5px;
+    line-height: 1.6;
+    font-family: 'Consolas', 'Monaco', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow: auto;
+    tab-size: 2;
+    resize: none;
+    outline: none;
+  }
+  .html-input {
+    z-index: 2;
+    color: transparent;
+    caret-color: #66d9ef;
+  }
+  .html-input::selection { color: #f8f8f2; background: rgba(102, 217, 239, 0.35); }
+  .html-highlight {
+    z-index: 1;
+    pointer-events: none;
+    color: #f8f8f2;
+  }
+  .html-highlight .tag { color: #f92672; font-weight: 600; }
+  .html-highlight .attr { color: #a6e22e; }
+  .html-highlight .string { color: #e6db74; }
+  .html-highlight .comment { color: #75715e; font-style: italic; }
+  .html-highlight .entity { color: #ae81ff; }
+  .html-highlight .doctype { color: #66d9ef; }
+  .html-highlight .brace { color: #f8f8f2; }
+
   .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; background: linear-gradient(135deg, var(--nebula-purple), var(--nebula-cyan)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
   .modal-text { font-size: 14px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.5; }
   .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
@@ -236,6 +287,15 @@
 
   body.overlap .notes-area { display: block; }
   body.overlap .notes-canvas { min-width: 100%; min-height: 100%; display: inline-block; }
+
+  .note-card.fullscreen {
+    position: fixed !important;
+    z-index: 50;
+    resize: none !important;
+    margin: 0 !important;
+    border-radius: 12px !important;
+  }
+
   body.overlap .note-card { position: absolute; }
   body:not(.overlap) .notes-area { display: block; }
   body:not(.overlap) .notes-canvas { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 16px; align-content: start; }
@@ -268,6 +328,7 @@
     <div class="header-right">
       <span class="offline-badge" id="offlineBadge">Offline</span>
       <span class="note-count" id="noteCount">0 notes</span>
+      <button class="header-btn" id="themeBtn" title="Cycle theme" onclick="cycleTheme()" style="background: var(--nebula-purple); border-color: transparent;">●</button>
       <button class="header-btn" id="installBtn" title="Install app" onclick="installApp()">+</button>
       <button class="header-btn" id="settingsBtn" title="Settings" onclick="openSettings()">⚙</button>
     </div>
@@ -456,7 +517,12 @@ function drawStars(time) {
   }
   requestAnimationFrame(drawStars);
 }
-window.addEventListener('resize', () => { resizeCanvas(); expandCanvas(); });
+window.addEventListener('resize', () => {
+  resizeCanvas();
+  expandCanvas();
+  const c = document.querySelector('.note-card.fullscreen');
+  if (c) positionFullscreen(c);
+});
 resizeCanvas();
 requestAnimationFrame(drawStars);
 
@@ -527,7 +593,6 @@ function selectAnimation(id) {
 function applyTheme(themeId, persist = true) {
   currentTheme = themeId;
   document.body.setAttribute('data-theme', themeId);
-  renderThemeGrid();
   renderAnimOptions();
   renderNotes();
   if (persist) saveSettings();
@@ -579,120 +644,156 @@ function toggleTexture() {
 }
 
 
-function toggleOverlap() {
+function toggleOverlap(skipRender = false) {
   overlapEnabled = document.getElementById('overlapToggle').checked;
+  if (!overlapEnabled) exitFullscreen();
+  if (skipRender) return;
   document.body.classList.toggle('overlap', overlapEnabled);
   if (!overlapEnabled) autoTileNotes(true);
   saveSettings();
   renderNotes();
 }
 
+let activeFullscreenId = null;
+let fullscreenOriginalParent = null;
+let fullscreenOriginalIndex = -1;
+let fullscreenRefreshInterval = null;
+
 function toggleFullscreen(id) {
-  const note = notes.find(n => n.id === id);
-  const card = document.querySelector(`.note-card[data-id="${id}"]`);
-  const canvas = document.getElementById('notesCanvas');
-  if (!note || !card || !canvas) return;
-
-  const isFullscreen = card.classList.contains('fullscreen');
-
-  if (isFullscreen) {
-    card.classList.remove('fullscreen');
-    card.style.position = 'absolute';
-    card.style.left = (note._x || 20) + 'px';
-    card.style.top = (note._y || 20) + 'px';
-    card.style.width = '280px';
-    card.style.height = 'auto';
-    card.style.zIndex = '';
-    restoreShiftedNotes(id);
-  } else {
-    document.querySelectorAll('.note-card.fullscreen').forEach(c => {
-      const nid = parseInt(c.dataset.id);
-      c.classList.remove('fullscreen');
-      const n = notes.find(x => x.id === nid);
-      c.style.position = 'absolute';
-      c.style.left = (n._x || 20) + 'px';
-      c.style.top = (n._y || 20) + 'px';
-      c.style.width = '280px';
-      c.style.height = 'auto';
-      c.style.zIndex = '';
-    });
-    restoreAllShiftedNotes();
-
-    // Ensure overlap mode
-    if (!document.body.classList.contains('overlap')) {
-      document.getElementById('overlapToggle').checked = true;
-      toggleOverlap();
-    }
-
-    shiftOtherNotes(id);
-
-    const areaRect = document.getElementById('notesArea').getBoundingClientRect();
-    card.classList.add('fullscreen');
-    card.style.position = 'absolute';
-    card.style.left = '20px';
-    card.style.top = '20px';
-    card.style.width = (areaRect.width - 60) + 'px';
-    card.style.height = (areaRect.height - 60) + 'px';
-    card.style.zIndex = '50';
+  if (activeFullscreenId === id) {
+    exitFullscreen();
+    return;
   }
+  enterFullscreen(id);
+}
+
+function enterFullscreen(id) {
+  const area = document.getElementById('notesArea');
+  const canvas = document.getElementById('notesCanvas');
+  if (!area || !canvas) return;
+
+  // Ensure overlap mode
+  if (!document.body.classList.contains('overlap')) {
+    overlapEnabled = true;
+    document.body.classList.add('overlap');
+    document.getElementById('overlapToggle').checked = true;
+    saveSettings();
+    renderNotes();
+  }
+
+  activeFullscreenId = id;
+  const card = document.querySelector(`.note-card[data-id="${id}"]`);
+  if (!card) return;
+
+  fullscreenOriginalParent = card.parentNode;
+  fullscreenOriginalIndex = Array.from(fullscreenOriginalParent.children).indexOf(card);
+
+  card.classList.add('fullscreen');
+  document.body.appendChild(card);
+  positionFullscreen(card);
+
+  if (!fullscreenRefreshInterval) {
+    fullscreenRefreshInterval = setInterval(() => {
+      const c = document.querySelector('.note-card.fullscreen');
+      if (c) positionFullscreen(c);
+    }, 200);
+  }
+
   expandCanvas();
 }
 
-let shiftedNotes = new Map();
-
-function shiftOtherNotes(fullscreenId) {
-  shiftedNotes.clear();
-  const fsCard = document.querySelector(`.note-card[data-id="${fullscreenId}"]`);
-  const fsRect = fsCard.getBoundingClientRect();
-  const areaRect = document.getElementById('notesArea').getBoundingClientRect();
-  const shiftBy = fsRect.width + 40;
-
-  document.querySelectorAll('.note-card').forEach(c => {
-    const nid = parseInt(c.dataset.id);
-    if (nid === fullscreenId) return;
-    const n = notes.find(x => x.id === nid);
-    const left = parseInt(c.style.left || n._x || 20);
-    if (left < fsRect.right - areaRect.left) {
-      shiftedNotes.set(nid, left);
-      const newLeft = left + shiftBy;
-      c.style.left = newLeft + 'px';
-      n._x = newLeft;
-    }
-  });
-  saveNotes();
+function positionFullscreen(card) {
+  const area = document.getElementById('notesArea');
+  if (!card || !area) return;
+  const r = area.getBoundingClientRect();
+  const pad = 10;
+  card.style.left = (r.left + pad) + 'px';
+  card.style.top = (r.top + pad) + 'px';
+  card.style.width = (r.width - pad * 2) + 'px';
+  card.style.height = (r.height - pad * 2) + 'px';
 }
 
-function restoreShiftedNotes(fullscreenId) {
-  const fsCard = document.querySelector(`.note-card[data-id="${fullscreenId}"]`);
-  const fsRect = fsCard.getBoundingClientRect();
-  const areaRect = document.getElementById('notesArea').getBoundingClientRect();
-  const shiftBy = fsRect.width + 40;
+function exitFullscreen() {
+  if (fullscreenRefreshInterval) {
+    clearInterval(fullscreenRefreshInterval);
+    fullscreenRefreshInterval = null;
+  }
 
-  document.querySelectorAll('.note-card').forEach(c => {
-    const nid = parseInt(c.dataset.id);
-    if (nid === fullscreenId) return;
-    const n = notes.find(x => x.id === nid);
-    if (shiftedNotes.has(nid)) {
-      const newLeft = n._x - shiftBy;
-      c.style.left = Math.max(20, newLeft) + 'px';
-      n._x = Math.max(20, newLeft);
+  if (!activeFullscreenId) return;
+  const card = document.querySelector(`.note-card[data-id="${activeFullscreenId}"]`);
+  const note = notes.find(n => n.id === activeFullscreenId);
+
+  if (card && fullscreenOriginalParent) {
+    card.classList.remove('fullscreen');
+    card.style.position = 'absolute';
+    card.style.left = (note?._x || 20) + 'px';
+    card.style.top = (note?._y || 20) + 'px';
+    card.style.width = '280px';
+    card.style.height = 'auto';
+    card.style.zIndex = '';
+
+    if (fullscreenOriginalIndex >= 0 && fullscreenOriginalIndex < fullscreenOriginalParent.children.length) {
+      fullscreenOriginalParent.insertBefore(card, fullscreenOriginalParent.children[fullscreenOriginalIndex]);
+    } else {
+      fullscreenOriginalParent.appendChild(card);
     }
-  });
-  shiftedNotes.clear();
-  saveNotes();
+  }
+
+  activeFullscreenId = null;
+  fullscreenOriginalParent = null;
+  fullscreenOriginalIndex = -1;
+  expandCanvas();
 }
 
-function restoreAllShiftedNotes() {
-  shiftedNotes.forEach((oldLeft, nid) => {
-    const n = notes.find(x => x.id === nid);
-    const c = document.querySelector(`.note-card[data-id="${nid}"]`);
-    if (n && c) {
-      c.style.left = oldLeft + 'px';
-      n._x = oldLeft;
-    }
+function escapeHtmlForHighlight(text) {
+  return text.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+function highlightHtmlString(text) {
+  if (!text) return '<span></span>';
+  let html = escapeHtmlForHighlight(text);
+
+  // DOCTYPE
+  html = html.replace(/(&lt;!DOCTYPE[\s\S]*?&gt;)/gi, '<span class="doctype">$1</span>');
+
+  // Comments
+  html = html.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="comment">$1</span>');
+
+  // HTML tags: split into tag name, attributes/strings, and brackets
+  html = html.replace(/&lt;(\/?)([a-zA-Z][a-zA-Z0-9-]*)(.*?)(\/?)&gt;/g, function(match, slash1, tagName, attrs, slash2) {
+    const coloredAttrs = colorAttributes(attrs);
+    return '<span class="brace">&lt;' + slash1 + '</span><span class="tag">' + tagName + '</span>' + coloredAttrs + '<span class="brace">' + slash2 + '&gt;</span>';
   });
-  shiftedNotes.clear();
-  saveNotes();
+
+  // Entities
+  html = html.replace(/(&amp;[a-zA-Z0-9#]+;)/g, '<span class="entity">$1</span>');
+
+  return html;
+}
+
+function colorAttributes(attrs) {
+  if (!attrs) return '';
+  return attrs.replace(/\s+([a-zA-Z][a-zA-Z0-9-]*)(=?)((?:&quot;(?:[^&]|&(?!quot;))*&quot;|&#039;(?:[^&]|&(?!#039;))*&#039;)?)/g, function(match, name, eq, value) {
+    if (!eq) return ' <span class="attr">' + name + '</span>';
+    return ' <span class="attr">' + name + '</span><span class="brace">=</span><span class="string">' + value + '</span>';
+  });
+}
+
+function highlightHtml(id) {
+  const input = document.getElementById(`html-input-${id}`);
+  const out = document.getElementById(`html-highlight-${id}`);
+  if (!input || !out) return;
+  out.innerHTML = highlightHtmlString(input.value);
+  syncHtmlScroll(id);
+}
+
+function syncHtmlScroll(id) {
+  const input = document.getElementById(`html-input-${id}`);
+  const out = document.getElementById(`html-highlight-${id}`);
+  if (input && out) {
+    out.scrollTop = input.scrollTop;
+    out.scrollLeft = input.scrollLeft;
+  }
 }
 
 function toggleHtmlMode(id) {
@@ -703,21 +804,7 @@ function toggleHtmlMode(id) {
   renderNotes();
 }
 
-function renderThemeGrid() {
-  const grid = document.getElementById('themeGrid');
-  if (!grid) return;
-  grid.innerHTML = THEMES.map(t => `
-    <div class="theme-swatch ${t.id === currentTheme ? 'active' : ''}" 
-         style="background: ${t.color};" 
-         onclick="applyTheme('${t.id}')"
-         title="${t.name}">
-      <span class="theme-name">${t.name}</span>
-    </div>
-  `).join('');
-}
-
 function openSettings() {
-  renderThemeGrid();
   renderAnimOptions();
   document.getElementById('bgImageToggle').checked = bgImageEnabled;
   document.getElementById('textureToggle').checked = texturedFrames;
@@ -747,6 +834,7 @@ try {
       const map = {purple:'nebula', cyan:'nebula', pink:'purplesque', blue:'midnight-blue', teal:'emerald', gold:'gold', rose:'crimson', orange:'sunset'};
       n.color = map[n.color] || 'nebula';
     }
+    if (n.title === '🌌 Welcome to Nebula Notepad') n.title = '🌌 Welcome to Nebula';
   });
 } catch(e) { notes = []; }
 
@@ -757,7 +845,7 @@ let clipboardCut = false;
 if (notes.length === 0) {
   notes.unshift({
     id: noteIdCounter++,
-    title: '🌌 Welcome to Nebula Notepad',
+    title: '🌌 Welcome to Nebula',
     tabs: [
       { title: 'Tips', body: 'Ctrl+N: new note\nCtrl+T: new tab\nCtrl+D: duplicate note\nCtrl+C/V/X: copy/cut/paste note\nEsc: close modals\n\nThe last tab on any note can be locked with a password — a safe place for keys and private info.' },
       { title: 'Private', body: '', locked: true }
@@ -853,6 +941,7 @@ function updateNoteBody(id, body) {
     note.tabs[note.activeTab].body = body;
     note.updated = Date.now();
     saveNotes();
+    if (note.htmlMode) highlightHtml(id);
   }
 }
 
@@ -1031,22 +1120,48 @@ function renderNotes() {
         <button class="note-tab-add" onclick="addTab(${note.id})" title="Add tab">+</button>
         ${lockHtml}
       </div>
-      ${isLocked ? `
-        <div class="locked-tab">
-          <div>🔒 This tab is locked</div>
-          <input type="password" placeholder="Password" id="pw-${note.id}" onkeydown="if(event.key==='Enter')unlockTab(${note.id})">
-          <button class="toolbar-btn" onclick="unlockTab(${note.id})">Unlock</button>
-        </div>
-      ` : note.htmlMode ? `
-        <div class="note-body html-body" contenteditable="true" placeholder="Write HTML..." oninput="updateNoteBody(${note.id}, this.innerHTML)">${tab.body || ''}</div>
-      ` : `
-        <textarea class="note-body" placeholder="Write something cosmic..." oninput="updateNoteBody(${note.id}, this.value)">${escapeHtml(tab.body)}</textarea>
-      `}
+      <div class="note-body-container" id="body-${note.id}"></div>
       <div class="note-footer">
         <span>${new Date(note.updated).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</span>
       </div>
     `;
     canvas.appendChild(card);
+
+    // Render note body via DOM to avoid nested template literal issues
+    const bodyContainer = document.getElementById(`body-${note.id}`);
+    if (bodyContainer) {
+      if (isLocked) {
+        bodyContainer.innerHTML = `
+          <div class="locked-tab">
+            <div>🔒 This tab is locked</div>
+            <input type="password" placeholder="Password" id="pw-${note.id}" onkeydown="if(event.key==='Enter')unlockTab(${note.id})">
+            <button class="toolbar-btn" onclick="unlockTab(${note.id})">Unlock</button>
+          </div>
+        `;
+      } else if (note.htmlMode) {
+        bodyContainer.innerHTML = `
+          <div class="html-editor-wrap">
+            <textarea class="html-input" id="html-input-${note.id}" spellcheck="false" placeholder="Write HTML..."></textarea>
+            <pre class="html-highlight" id="html-highlight-${note.id}"></pre>
+          </div>
+        `;
+        const input = document.getElementById(`html-input-${note.id}`);
+        const out = document.getElementById(`html-highlight-${note.id}`);
+        if (input) {
+          input.value = tab.body || '';
+          input.addEventListener('input', () => { updateNoteBody(note.id, input.value); highlightHtml(note.id); });
+          input.addEventListener('scroll', () => syncHtmlScroll(note.id));
+        }
+        if (out) out.innerHTML = highlightHtmlString(tab.body || '');
+      } else {
+        const ta = document.createElement('textarea');
+        ta.className = 'note-body';
+        ta.placeholder = 'Write something cosmic...';
+        ta.value = tab.body || '';
+        ta.addEventListener('input', () => updateNoteBody(note.id, ta.value));
+        bodyContainer.appendChild(ta);
+      }
+    }
   });
 
   updateNoteCount();
