@@ -63,6 +63,14 @@
   @keyframes nebula-drift-2 { 0% { transform: translate(0,0) scale(1); } 100% { transform: translate(-4vw,-5vh) scale(1.15); } }
   @keyframes nebula-drift-3 { 0% { transform: translate(-50%,-50%) scale(1); opacity: 0.25; } 100% { transform: translate(-45%,-48%) scale(1.2); opacity: 0.4; } }
 
+
+  body.anim-off #starfield,
+  body.anim-off .nebula-layer { display: none !important; }
+  body.anim-drift #starfield { animation: starfield-drift 120s linear infinite; }
+  @keyframes starfield-drift { from { transform: translateX(0); } to { transform: translateX(-50px); } }
+  body.anim-pulse .nebula-layer { animation: nebula-pulse 8s ease-in-out infinite alternate; }
+  @keyframes nebula-pulse { 0% { opacity: 0.25; transform: scale(1); } 100% { opacity: 0.45; transform: scale(1.05); } }
+
   .nebula-photo { position: fixed; inset: 0; z-index: 0; pointer-events: none; background-image: url("./galaxy.jpg"); background-size: cover; background-position: center; background-repeat: no-repeat; }
   .nebula-photo::after { content: ''; position: absolute; inset: 0; background: rgba(8, 4, 20, 0.55); }
   .nebula-photo.hidden { background-image: none !important; }
@@ -184,6 +192,21 @@
   .file-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
   .file-row input[type="file"] { color: var(--text-primary); font-size: 13px; max-width: 220px; }
   .file-row input[type="file"]::file-selector-button { background: rgba(155,89,255,0.15); border: 1px solid rgba(155,89,255,0.3); color: var(--text-primary); border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+
+  .anim-options { display: flex; flex-wrap: wrap; gap: 8px; }
+  .anim-chip {
+    padding: 8px 14px;
+    background: rgba(155, 89, 255, 0.1);
+    border: 1px solid rgba(155, 89, 255, 0.2);
+    border-radius: 20px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .anim-chip:hover { background: rgba(155, 89, 255, 0.2); color: var(--text-primary); }
+  .anim-chip.active { background: rgba(155, 89, 255, 0.35); border-color: rgba(155, 89, 255, 0.5); color: var(--text-primary); }
+
   .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; background: linear-gradient(135deg, var(--nebula-purple), var(--nebula-cyan)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
   .modal-text { font-size: 14px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.5; }
   .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
@@ -311,6 +334,14 @@
       </div>
 
       <div class="settings-section">
+        <div class="settings-label">Background Animation</div>
+        <div class="anim-options" id="animOptions"></div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-top:8px">
+          Animation turns off automatically when you set a custom background image.
+        </p>
+      </div>
+
+      <div class="settings-section">
         <div class="settings-label">Help</div>
         <p style="font-size:13px;color:var(--text-secondary);line-height:1.5">
           <strong>Ctrl+N</strong> new note · <strong>Ctrl+T</strong> new tab · <strong>Ctrl+D</strong> duplicate note · <strong>Ctrl+C/X/V</strong> copy/cut/paste note · <strong>Esc</strong> close modals.<br><br>
@@ -432,6 +463,14 @@ let bgImageEnabled = appSettings.bgImageEnabled !== false;
 let texturedFrames = appSettings.texturedFrames || false;
 let customBgImage = appSettings.customBgImage || null;
 let overlapEnabled = appSettings.overlapEnabled || false;
+let bgAnimation = appSettings.bgAnimation || 'twinkle';
+
+const ANIMATIONS = [
+  { id: 'twinkle', name: 'Twinkle' },
+  { id: 'drift', name: 'Slow Drift' },
+  { id: 'pulse', name: 'Nebula Pulse' },
+  { id: 'off', name: 'Off' }
+];
 
 function saveSettings() {
   localStorage.setItem('nebula-settings', JSON.stringify({
@@ -439,14 +478,37 @@ function saveSettings() {
     bgImageEnabled,
     texturedFrames,
     customBgImage,
-    overlapEnabled
+    overlapEnabled,
+    bgAnimation
   }));
+}
+
+function applyAnimation(animId, persist = true) {
+  bgAnimation = animId;
+  document.body.classList.remove('anim-twinkle', 'anim-drift', 'anim-pulse', 'anim-off');
+  document.body.classList.add('anim-' + animId);
+  renderAnimOptions();
+  if (persist) saveSettings();
+}
+
+function renderAnimOptions() {
+  const container = document.getElementById('animOptions');
+  if (!container) return;
+  container.innerHTML = ANIMATIONS.map(a => `
+    <div class="anim-chip ${a.id === bgAnimation ? 'active' : ''}" onclick="selectAnimation('${a.id}')">${a.name}</div>
+  `).join('');
+}
+
+function selectAnimation(id) {
+  applyAnimation(id);
+  showToast('✦ Animation: ' + ANIMATIONS.find(a => a.id === id).name);
 }
 
 function applyTheme(themeId, persist = true) {
   currentTheme = themeId;
   document.body.setAttribute('data-theme', themeId);
   renderThemeGrid();
+  renderAnimOptions();
   renderNotes();
   if (persist) saveSettings();
 }
@@ -476,8 +538,9 @@ function changeBgImage(event) {
   reader.onload = (e) => {
     customBgImage = e.target.result;
     bgImageEnabled = true;
+    applyAnimation('off');
     applyBgSettings();
-    showToast('✦ Background image updated');
+    showToast('✦ Background image updated · animation off');
   };
   reader.readAsDataURL(file);
 }
@@ -543,6 +606,7 @@ function renderThemeGrid() {
 
 function openSettings() {
   renderThemeGrid();
+  renderAnimOptions();
   document.getElementById('bgImageToggle').checked = bgImageEnabled;
   document.getElementById('textureToggle').checked = texturedFrames;
   document.getElementById('overlapToggle').checked = overlapEnabled;
@@ -597,6 +661,7 @@ applyTheme(currentTheme, false);
 applyBgSettings(false);
 if (texturedFrames) document.body.classList.add('textured');
   if (overlapEnabled) document.body.classList.add('overlap');
+  applyAnimation(bgAnimation, false);
 
 function saveNotes() {
   localStorage.setItem('nebula-notepad', JSON.stringify(notes));
