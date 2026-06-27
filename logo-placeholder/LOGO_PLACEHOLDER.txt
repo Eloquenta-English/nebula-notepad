@@ -1,0 +1,11 @@
+LOGO PLACEHOLDER
+================
+Place generated logo files here:
+- ./icons/icon-192.png
+- ./icons/icon-512.png
+- ./icons/icon-maskable-512.png
+- ./screenshots/wide.png (1280x720)
+- ./screenshots/narrow.png (750x1334)
+
+Prompt suggestion for local art model:
+"Minimalist cosmic nebula notepad app icon, dark purple and cyan gradient background, glowing four-point star sparkle, rounded square, clean vector style, no text, suitable for iOS/Android app stores."

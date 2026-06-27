@@ -1,0 +1,4 @@
+For Tauri desktop bundles, convert generated-logo.png to:
+- icon.ico (Windows, multi-resolution)
+- icon.icns (macOS)
+Use tools like ImageMagick or a converter site, then replace these placeholders.
