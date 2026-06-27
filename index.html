@@ -153,7 +153,9 @@
   .note-tab-add { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; background: rgba(155, 89, 255, 0.08); border: 1px dashed rgba(155, 89, 255, 0.2); border-radius: 6px; color: var(--text-dim); font-size: 14px; cursor: pointer; transition: all 0.2s; flex-shrink: 0; }
   .note-tab-add:hover { background: rgba(155, 89, 255, 0.18); border-color: rgba(155, 89, 255, 0.4); color: var(--text-primary); }
 
-  .note-body { flex: 1; padding: 12px; background: transparent; border: none; color: var(--text-primary); font-size: 14px; line-height: 1.55; resize: none; outline: none; font-family: inherit; }
+  .note-body { flex: 1; padding: 12px; background: transparent; border: none; color: var(--text-primary); font-size: 14px; line-height: 1.55; resize: none; outline: none; font-family: inherit; overflow-y: auto; }
+  .note-body.html-body { font-family: 'Consolas', 'Monaco', monospace; white-space: pre-wrap; background: rgba(0,0,0,0.12); border-radius: 8px; }
+  .note-body.html-body:empty::before { content: attr(placeholder); color: var(--text-dim); }
   .note-body::placeholder { color: var(--text-dim); }
 
   .locked-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 30px 20px; color: var(--text-secondary); }
@@ -190,6 +192,13 @@
   .modal-btn.cancel { background: transparent; }
   .modal-btn.danger-confirm { background: rgba(255, 80, 80, 0.15); border-color: rgba(255, 80, 80, 0.3); }
   .modal-btn.danger-confirm:hover { background: rgba(255, 80, 80, 0.25); }
+
+
+  body.overlap .notes-area { display: block; }
+  body.overlap .note-card { position: absolute; }
+  body:not(.overlap) .notes-area { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 16px; align-content: start; }
+  body:not(.overlap) .note-card { position: relative !important; left: auto !important; top: auto !important; width: 100% !important; min-height: 180px; resize: vertical; }
+  body:not(.overlap) .note-card.fullscreen { position: fixed !important; inset: 20px; width: auto !important; height: auto !important; z-index: 100; }
 
   @media (max-width: 768px) {
     .app-container { padding: 10px; }
@@ -294,6 +303,14 @@
         </label>
       </div>
       <div class="settings-section">
+        <div class="settings-label">Layout</div>
+        <label class="toggle-row">
+          <input type="checkbox" id="overlapToggle" onchange="toggleOverlap()">
+          <span>Allow notes to overlap freely</span>
+        </label>
+      </div>
+
+      <div class="settings-section">
         <div class="settings-label">Help</div>
         <p style="font-size:13px;color:var(--text-secondary);line-height:1.5">
           <strong>Ctrl+N</strong> new note · <strong>Ctrl+T</strong> new tab · <strong>Ctrl+D</strong> duplicate note · <strong>Ctrl+C/X/V</strong> copy/cut/paste note · <strong>Esc</strong> close modals.<br><br>
@@ -364,7 +381,7 @@ function initStars() {
       y: Math.random() * canvas.height,
       r: Math.random() * 1.8 + 0.2,
       brightness: Math.random(),
-      twinkleSpeed: Math.random() * 0.02 + 0.005,
+      twinkleSpeed: Math.random() * 0.004 + 0.0008,
       twinkleOffset: Math.random() * Math.PI * 2,
       color: starColor()
     });
@@ -414,13 +431,15 @@ let currentTheme = appSettings.theme || 'nebula';
 let bgImageEnabled = appSettings.bgImageEnabled !== false;
 let texturedFrames = appSettings.texturedFrames || false;
 let customBgImage = appSettings.customBgImage || null;
+let overlapEnabled = appSettings.overlapEnabled || false;
 
 function saveSettings() {
   localStorage.setItem('nebula-settings', JSON.stringify({
     theme: currentTheme,
     bgImageEnabled,
     texturedFrames,
-    customBgImage
+    customBgImage,
+    overlapEnabled
   }));
 }
 
@@ -476,6 +495,39 @@ function toggleTexture() {
   saveSettings();
 }
 
+
+function toggleOverlap() {
+  overlapEnabled = document.getElementById('overlapToggle').checked;
+  document.body.classList.toggle('overlap', overlapEnabled);
+  if (!overlapEnabled) autoTileNotes(true);
+  saveSettings();
+  renderNotes();
+}
+
+function toggleFullscreen(id) {
+  const note = notes.find(n => n.id === id);
+  const card = document.querySelector(`.note-card[data-id="${id}"]`);
+  if (!note || !card) return;
+  if (card.classList.contains('fullscreen')) {
+    card.classList.remove('fullscreen');
+    card.style.left = (note._x || 20) + 'px';
+    card.style.top = (note._y || 20) + 'px';
+    card.style.width = '280px';
+    card.style.height = 'auto';
+  } else {
+    document.querySelectorAll('.note-card.fullscreen').forEach(c => c.classList.remove('fullscreen'));
+    card.classList.add('fullscreen');
+  }
+}
+
+function toggleHtmlMode(id) {
+  const note = notes.find(n => n.id === id);
+  if (!note) return;
+  note.htmlMode = !note.htmlMode;
+  saveNotes();
+  renderNotes();
+}
+
 function renderThemeGrid() {
   const grid = document.getElementById('themeGrid');
   if (!grid) return;
@@ -493,6 +545,7 @@ function openSettings() {
   renderThemeGrid();
   document.getElementById('bgImageToggle').checked = bgImageEnabled;
   document.getElementById('textureToggle').checked = texturedFrames;
+  document.getElementById('overlapToggle').checked = overlapEnabled;
   document.getElementById('settingsOverlay').classList.add('active');
 }
 
@@ -543,6 +596,7 @@ if (notes.length === 0) {
 applyTheme(currentTheme, false);
 applyBgSettings(false);
 if (texturedFrames) document.body.classList.add('textured');
+  if (overlapEnabled) document.body.classList.add('overlap');
 
 function saveNotes() {
   localStorage.setItem('nebula-notepad', JSON.stringify(notes));
@@ -701,7 +755,7 @@ function autoTileNotes(force = false) {
 
 let activeDrag = null;
 function startDrag(e, id) {
-  if (e.target.closest('.note-actions') || e.target.closest('.note-tabs') || e.target.closest('.note-body') || e.target.closest('.note-title')) return;
+  if (e.target.closest('.note-actions') || e.target.closest('.note-tabs') || e.target.closest('.note-body') || e.target.closest('.note-title') || e.target.closest('.note-btn')) return;
   const card = document.querySelector(`.note-card[data-id="${id}"]`);
   const note = notes.find(n => n.id === id);
   if (!card || !note) return;
@@ -746,7 +800,7 @@ function renderNotes() {
     card.className = 'note-card';
     card.dataset.id = note.id;
     card.style.cssText = `left:${note._x || 20}px; top:${note._y || 20}px; ${getColorStyle(note.color)}`;
-    card.addEventListener('mousedown', e => startDrag(e, note.id));
+    if (overlapEnabled) card.addEventListener('mousedown', e => startDrag(e, note.id));
 
     const tab = note.tabs[note.activeTab] || note.tabs[0];
     const isLocked = tab && tab.locked;
@@ -765,6 +819,8 @@ function renderNotes() {
       <div class="note-header">
         <input type="text" class="note-title" value="${escapeHtml(note.title)}" placeholder="Note title..." onchange="updateNoteTitle(${note.id}, this.value)">
         <div class="note-actions">
+          <button class="note-btn" title="HTML mode" onclick="event.stopPropagation(); toggleHtmlMode(${note.id})">${note.htmlMode ? 'TXT' : 'HTML'}</button>
+          <button class="note-btn" title="Fullscreen" onclick="event.stopPropagation(); toggleFullscreen(${note.id})">⛶</button>
           <button class="note-btn" title="Duplicate" onclick="event.stopPropagation(); duplicateNote(${note.id})">⧉</button>
           <button class="note-btn" title="Delete" onclick="event.stopPropagation(); confirmDelete(${note.id})">🗑</button>
         </div>
@@ -780,6 +836,8 @@ function renderNotes() {
           <input type="password" placeholder="Password" id="pw-${note.id}" onkeydown="if(event.key==='Enter')unlockTab(${note.id})">
           <button class="toolbar-btn" onclick="unlockTab(${note.id})">Unlock</button>
         </div>
+      ` : note.htmlMode ? `
+        <div class="note-body html-body" contenteditable="true" placeholder="Write HTML..." oninput="updateNoteBody(${note.id}, this.innerHTML)">${tab.body || ''}</div>
       ` : `
         <textarea class="note-body" placeholder="Write something cosmic..." oninput="updateNoteBody(${note.id}, this.value)">${escapeHtml(tab.body)}</textarea>
       `}
